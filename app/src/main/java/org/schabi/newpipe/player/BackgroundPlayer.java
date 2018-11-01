@@ -27,6 +27,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -90,8 +91,12 @@ public final class BackgroundPlayer extends Service {
     private static final int NOTIFICATION_ID = 123789;
     private NotificationManager notificationManager;
     private NotificationCompat.Builder notBuilder;
-    private RemoteViews notRemoteView;
-    private RemoteViews bigNotRemoteView;
+
+    private NotificationCompat.Action playPause;
+    private NotificationCompat.Action repeat;
+    private NotificationCompat.Action prevFRewind;
+    private NotificationCompat.Action nextFForward;
+    private NotificationCompat.Action close;
 
     private boolean shouldUpdateOnProgress;
 
@@ -172,64 +177,66 @@ public final class BackgroundPlayer extends Service {
     // Notification
     //////////////////////////////////////////////////////////////////////////*/
 
-    private void resetNotification() {
-        notBuilder = createNotification();
-    }
+    private void resetNotification() { notBuilder = createNotification(); }
 
     private NotificationCompat.Builder createNotification() {
-        notRemoteView = new RemoteViews(BuildConfig.APPLICATION_ID, R.layout.player_notification);
-        bigNotRemoteView = new RemoteViews(BuildConfig.APPLICATION_ID, R.layout.player_notification_expanded);
+        final Intent onClickIntent = NavigationHelper.getBackgroundPlayerActivityIntent(this);
 
-        setupNotification(notRemoteView);
-        setupNotification(bigNotRemoteView);
+        setupNotification();
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, getString(R.string.notification_channel_id))
                 .setOngoing(true)
+                .setContentTitle(basePlayerImpl.getVideoTitle())
+                .setContentText(basePlayerImpl.getUploaderName())
+                .addAction(repeat)
+                .addAction(prevFRewind)
+                .addAction(playPause)
+                .addAction(nextFForward)
+                .addAction(close)
+                .setStyle(new android.support.v4.media.app.NotificationCompat.MediaStyle()
+                    .setMediaSession(basePlayerImpl.mediaSessionManager.getMediaSession().getSessionToken())
+                    .setShowActionsInCompactView(1,2,3))
                 .setSmallIcon(R.drawable.ic_newpipe_triangle_white)
+                .setProgress(100, 40, false)
+                .setContentIntent(PendingIntent.getActivity(this, NOTIFICATION_ID, onClickIntent, PendingIntent.FLAG_UPDATE_CURRENT))
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setCustomContentView(notRemoteView)
-                .setCustomBigContentView(bigNotRemoteView);
+                .setLargeIcon(basePlayerImpl.getThumbnail());
+//                .setCustomContentView(notRemoteView)
+//                .setCustomBigContentView(bigNotRemoteView);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
             builder.setPriority(NotificationCompat.PRIORITY_MAX);
         }
         return builder;
     }
 
-    private void setupNotification(RemoteViews remoteViews) {
+    private void setupNotification() {
         if (basePlayerImpl == null) return;
 
-        remoteViews.setTextViewText(R.id.notificationSongName, basePlayerImpl.getVideoTitle());
-        remoteViews.setTextViewText(R.id.notificationArtist, basePlayerImpl.getUploaderName());
-
-        remoteViews.setOnClickPendingIntent(R.id.notificationPlayPause,
-                PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_PAUSE), PendingIntent.FLAG_UPDATE_CURRENT));
-        remoteViews.setOnClickPendingIntent(R.id.notificationStop,
-                PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_CLOSE), PendingIntent.FLAG_UPDATE_CURRENT));
-        remoteViews.setOnClickPendingIntent(R.id.notificationRepeat,
-                PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_REPEAT), PendingIntent.FLAG_UPDATE_CURRENT));
-
-        // Starts background player activity -- attempts to unlock lockscreen
-        final Intent intent = NavigationHelper.getBackgroundPlayerActivityIntent(this);
-        remoteViews.setOnClickPendingIntent(R.id.notificationContent,
-                PendingIntent.getActivity(this, NOTIFICATION_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT));
-
-        if (basePlayerImpl.playQueue != null && basePlayerImpl.playQueue.size() > 1) {
-            remoteViews.setInt(R.id.notificationFRewind, SET_IMAGE_RESOURCE_METHOD, R.drawable.exo_controls_previous);
-            remoteViews.setInt(R.id.notificationFForward, SET_IMAGE_RESOURCE_METHOD, R.drawable.exo_controls_next);
-            remoteViews.setOnClickPendingIntent(R.id.notificationFRewind,
-                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_PREVIOUS), PendingIntent.FLAG_UPDATE_CURRENT));
-            remoteViews.setOnClickPendingIntent(R.id.notificationFForward,
-                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_NEXT), PendingIntent.FLAG_UPDATE_CURRENT));
-        } else {
-            remoteViews.setInt(R.id.notificationFRewind, SET_IMAGE_RESOURCE_METHOD, R.drawable.exo_controls_rewind);
-            remoteViews.setInt(R.id.notificationFForward, SET_IMAGE_RESOURCE_METHOD, R.drawable.exo_controls_fastforward);
-            remoteViews.setOnClickPendingIntent(R.id.notificationFRewind,
-                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_FAST_REWIND), PendingIntent.FLAG_UPDATE_CURRENT));
-            remoteViews.setOnClickPendingIntent(R.id.notificationFForward,
-                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_FAST_FORWARD), PendingIntent.FLAG_UPDATE_CURRENT));
+        int currentRepeatIcon = getRepeatModeIcon();
+        if (repeat == null || repeat.getIcon() != currentRepeatIcon) {
+            repeat = new NotificationCompat.Action(currentRepeatIcon, "Repeat",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_REPEAT), PendingIntent.FLAG_UPDATE_CURRENT));
+        }
+        if (playPause == null) {
+            playPause = new NotificationCompat.Action(R.drawable.exo_notification_pause, "Pause",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_PAUSE), PendingIntent.FLAG_UPDATE_CURRENT));
+        }
+        if (close == null) {
+            close = new NotificationCompat.Action(R.drawable.ic_close_white_24dp, "Close",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_CLOSE), PendingIntent.FLAG_UPDATE_CURRENT));
         }
 
-        setRepeatModeIcon(remoteViews, basePlayerImpl.getRepeatMode());
+        if (basePlayerImpl.playQueue != null && basePlayerImpl.playQueue.size() > 1) {
+            prevFRewind = new NotificationCompat.Action(R.drawable.exo_notification_previous, "Previous",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_PREVIOUS), PendingIntent.FLAG_UPDATE_CURRENT));
+            nextFForward = new NotificationCompat.Action(R.drawable.exo_notification_next, "Next",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_PLAY_NEXT), PendingIntent.FLAG_UPDATE_CURRENT));
+        } else {
+            prevFRewind = new NotificationCompat.Action(R.drawable.exo_controls_rewind, "FRewind",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_FAST_REWIND), PendingIntent.FLAG_UPDATE_CURRENT));
+            nextFForward = new NotificationCompat.Action(R.drawable.exo_controls_fastforward, "FForward",
+                    PendingIntent.getBroadcast(this, NOTIFICATION_ID, new Intent(ACTION_FAST_FORWARD), PendingIntent.FLAG_UPDATE_CURRENT));
+        }
     }
 
     /**
@@ -242,8 +249,7 @@ public final class BackgroundPlayer extends Service {
         //if (DEBUG) Log.d(TAG, "updateNotification() called with: drawableId = [" + drawableId + "]");
         if (notBuilder == null) return;
         if (drawableId != -1) {
-            if (notRemoteView != null) notRemoteView.setImageViewResource(R.id.notificationPlayPause, drawableId);
-            if (bigNotRemoteView != null) bigNotRemoteView.setImageViewResource(R.id.notificationPlayPause, drawableId);
+            playPause.icon = drawableId;
         }
         notificationManager.notify(NOTIFICATION_ID, notBuilder.build());
     }
@@ -264,6 +270,18 @@ public final class BackgroundPlayer extends Service {
                 remoteViews.setInt(R.id.notificationRepeat, SET_IMAGE_RESOURCE_METHOD, R.drawable.exo_controls_repeat_all);
                 break;
         }
+    }
+
+    private int getRepeatModeIcon() {
+        switch(basePlayerImpl.getRepeatMode()) {
+            case Player.REPEAT_MODE_OFF:
+                return R.drawable.exo_controls_repeat_off;
+            case Player.REPEAT_MODE_ONE:
+                return R.drawable.exo_controls_repeat_one;
+            case Player.REPEAT_MODE_ALL:
+                return R.drawable.exo_controls_repeat_all;
+        }
+        return R.drawable.exo_controls_repeat_off;
     }
     //////////////////////////////////////////////////////////////////////////
 
@@ -286,8 +304,6 @@ public final class BackgroundPlayer extends Service {
             super.handleIntent(intent);
 
             resetNotification();
-            if (bigNotRemoteView != null) bigNotRemoteView.setProgressBar(R.id.notificationProgressBar, 100, 0, false);
-            if (notRemoteView != null) notRemoteView.setProgressBar(R.id.notificationProgressBar, 100, 0, false);
             startForeground(NOTIFICATION_ID, notBuilder.build());
         }
 
@@ -295,23 +311,10 @@ public final class BackgroundPlayer extends Service {
         // Thumbnail Loading
         //////////////////////////////////////////////////////////////////////////*/
 
-        private void updateNotificationThumbnail() {
-            if (basePlayerImpl == null) return;
-            if (notRemoteView != null) {
-                notRemoteView.setImageViewBitmap(R.id.notificationCover,
-                        basePlayerImpl.getThumbnail());
-            }
-            if (bigNotRemoteView != null) {
-                bigNotRemoteView.setImageViewBitmap(R.id.notificationCover,
-                        basePlayerImpl.getThumbnail());
-            }
-        }
-
         @Override
         public void onLoadingComplete(String imageUri, View view, Bitmap loadedImage) {
             super.onLoadingComplete(imageUri, view, loadedImage);
             resetNotification();
-            updateNotificationThumbnail();
             updateNotification(-1);
         }
 
@@ -319,7 +322,6 @@ public final class BackgroundPlayer extends Service {
         public void onLoadingFailed(String imageUri, View view, FailReason failReason) {
             super.onLoadingFailed(imageUri, view, failReason);
             resetNotification();
-            updateNotificationThumbnail();
             updateNotification(-1);
         }
         /*//////////////////////////////////////////////////////////////////////////
@@ -344,14 +346,6 @@ public final class BackgroundPlayer extends Service {
 
             if (!shouldUpdateOnProgress) return;
             resetNotification();
-            if(Build.VERSION.SDK_INT >= 26 /*Oreo*/) updateNotificationThumbnail();
-            if (bigNotRemoteView != null) {
-                bigNotRemoteView.setProgressBar(R.id.notificationProgressBar, duration, currentProgress, false);
-                bigNotRemoteView.setTextViewText(R.id.notificationTime, getTimeString(currentProgress) + " / " + getTimeString(duration));
-            }
-            if (notRemoteView != null) {
-                notRemoteView.setProgressBar(R.id.notificationProgressBar, duration, currentProgress, false);
-            }
             updateNotification(-1);
         }
 
@@ -365,13 +359,6 @@ public final class BackgroundPlayer extends Service {
         public void onPlayNext() {
             super.onPlayNext();
             triggerProgressUpdate();
-        }
-
-        @Override
-        public void destroy() {
-            super.destroy();
-            if (notRemoteView != null) notRemoteView.setImageViewBitmap(R.id.notificationCover, null);
-            if (bigNotRemoteView != null) bigNotRemoteView.setImageViewBitmap(R.id.notificationCover, null);
         }
 
         /*//////////////////////////////////////////////////////////////////////////
@@ -403,7 +390,6 @@ public final class BackgroundPlayer extends Service {
         protected void onMetadataChanged(@NonNull final MediaSourceTag tag) {
             super.onMetadataChanged(tag);
             resetNotification();
-            updateNotificationThumbnail();
             updateNotification(-1);
             updateMetadata();
         }
@@ -534,8 +520,7 @@ public final class BackgroundPlayer extends Service {
         public void onPlaying() {
             super.onPlaying();
             resetNotification();
-            updateNotificationThumbnail();
-            updateNotification(R.drawable.ic_pause_white);
+            updateNotification(R.drawable.exo_notification_pause);
             lockManager.acquireWifiAndCpu();
         }
 
@@ -543,8 +528,7 @@ public final class BackgroundPlayer extends Service {
         public void onPaused() {
             super.onPaused();
             resetNotification();
-            updateNotificationThumbnail();
-            updateNotification(R.drawable.ic_play_arrow_white);
+            updateNotification(R.drawable.exo_notification_play);
             lockManager.releaseWifiAndCpu();
         }
 
@@ -552,13 +536,6 @@ public final class BackgroundPlayer extends Service {
         public void onCompleted() {
             super.onCompleted();
             resetNotification();
-            if (bigNotRemoteView != null) {
-                bigNotRemoteView.setProgressBar(R.id.notificationProgressBar, 100, 100, false);
-            }
-            if (notRemoteView != null) {
-                notRemoteView.setProgressBar(R.id.notificationProgressBar, 100, 100, false);
-            }
-            updateNotificationThumbnail();
             updateNotification(R.drawable.ic_replay_white);
             lockManager.releaseWifiAndCpu();
         }

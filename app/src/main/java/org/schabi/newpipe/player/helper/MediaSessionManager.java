@@ -33,6 +33,11 @@ public class MediaSessionManager {
         this.sessionConnector.setPlayer(player, null);
     }
 
+    @NonNull
+    public MediaSessionCompat getMediaSession() {
+        return mediaSession;
+    }
+
     @Nullable
     @SuppressWarnings("UnusedReturnValue")
     public KeyEvent handleMediaButtonIntent(final Intent intent) {
