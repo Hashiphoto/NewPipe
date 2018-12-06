@@ -201,8 +201,6 @@ public final class BackgroundPlayer extends Service {
                 .setContentIntent(PendingIntent.getActivity(this, NOTIFICATION_ID, onClickIntent, PendingIntent.FLAG_UPDATE_CURRENT))
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setLargeIcon(basePlayerImpl.getThumbnail());
-//                .setCustomContentView(notRemoteView)
-//                .setCustomBigContentView(bigNotRemoteView);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
             builder.setPriority(NotificationCompat.PRIORITY_MAX);
         }
